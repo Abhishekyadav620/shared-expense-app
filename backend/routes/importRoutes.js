@@ -7,6 +7,7 @@ const express = require('express');
 const multer = require('multer');
 const authMiddleware = require('../middleware/authMiddleware');
 const importController = require('../controllers/importController');
+const anomalyRoutes = require('./anomalyRoutes');
 
 const router = express.Router();
 
@@ -31,5 +32,6 @@ const upload = multer({
 router.use(authMiddleware);
 
 router.post('/', upload.single('file'), importController.uploadCsv);
+router.use('/anomalies', anomalyRoutes);
 
 module.exports = router;
