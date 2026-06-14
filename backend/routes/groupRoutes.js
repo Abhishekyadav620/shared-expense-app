@@ -12,6 +12,8 @@ const authMiddleware = require('../middleware/authMiddleware');
 const groupController = require('../controllers/groupController');
 const memberRoutes = require('./memberRoutes');
 const { groupExpenseRouter } = require('./expenseRoutes');
+const balanceRoutes = require('./balanceRoutes');
+const settlementRoutes = require('./settlementRoutes');
 
 const router = express.Router();
 
@@ -24,6 +26,8 @@ router.get('/', groupController.getAllGroups);
 // Member routes must be registered before /:id to avoid route conflicts
 router.use('/:groupId/members', memberRoutes);
 router.use('/:groupId/expenses', groupExpenseRouter);
+router.use('/:groupId/balances', balanceRoutes);
+router.use('/:groupId/settlements', settlementRoutes);
 
 router.get('/:id', groupController.getGroupById);
 router.put('/:id', groupController.updateGroup);

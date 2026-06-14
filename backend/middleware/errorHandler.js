@@ -35,6 +35,11 @@ function errorHandler(err, req, res, next) {
         statusCode = 409;
         message = 'A record with this value already exists';
         break;
+      case 'P2021':
+        // Table does not exist — migrations not applied
+        statusCode = 503;
+        message = 'Database tables are not set up. Run: npx prisma migrate dev';
+        break;
       case 'P2025':
         // Record to update/delete was not found
         statusCode = 404;
@@ -49,7 +54,16 @@ function errorHandler(err, req, res, next) {
   // ── Prisma: connection / engine failures ─────────────────────────────────
   if (err instanceof Prisma.PrismaClientInitializationError) {
     statusCode = 503;
-    message = 'Database connection failed';
+    message = 'Database connection failed. Check MySQL is running and DATABASE_URL in .env';
+  }
+
+  // Hide raw internal errors in production (e.g. undefined findUnique)
+  if (statusCode === 500 && process.env.NODE_ENV !== 'development') {
+    if (message.includes('findUnique') || message.includes('Prisma client')) {
+      message = 'Server configuration error. Run: npx prisma generate && npx prisma migrate dev';
+    } else {
+      message = 'Internal server error';
+    }
   }
 
   // ── Build JSON response ───────────────────────────────────────────────────

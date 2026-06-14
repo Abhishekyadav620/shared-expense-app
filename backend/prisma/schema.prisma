@@ -1,6 +1,3 @@
-// Prisma schema — single source of truth for database structure.
-// Prisma generates a type-safe client from these models.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,71 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── User ───────────────────────────────────────────────────────────────────
-// Core identity for authentication and expense participation.
-
-model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String   // bcrypt hash — never store plain text
-  createdAt DateTime @default(now())
-
-  createdGroups         Group[]
-  groupMemberships      GroupMember[]
-  expensesPaid          Expense[]              @relation("ExpensePayer")
-  expenseParticipations ExpenseParticipant[]
-  settlementsPaid       Settlement[]           @relation("SettlementPayer")
-  settlementsReceived   Settlement[]           @relation("SettlementReceiver")
-}
-
-// ─── Group ──────────────────────────────────────────────────────────────────
-// A shared expense bucket (e.g. "Roommates", "Trip to Goa").
-
-model Group {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdBy Int
-  createdAt DateTime @default(now())
-
-  creator  User          @relation(fields: [createdBy], references: [id])
-  members  GroupMember[]
-  expenses Expense[]
-}
-
-// ─── GroupMember ────────────────────────────────────────────────────────────
-// Membership is never hard-deleted — leftAt marks when someone left the group.
-
-model GroupMember {
-  id       Int       @id @default(autoincrement())
-  groupId  Int
-  userId   Int
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime? // null = still active in the group
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, userId])
-}
-
-// ─── Expense ─────────────────────────────────────────────────────────────────
-// A single bill or purchase within a group.
-
-model Expense {
-  id          Int      @id @default(autoincrement())
-  groupId     Int
-  title       String
-  amount      Decimal  @db.Decimal(10, 2)
-  currency    Currency @default(INR)
-  paidBy      Int
-  expenseDate DateTime
-  splitType   SplitType
-
-  group        Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer        User                 @relation("ExpensePayer", fields: [paidBy], references: [id])
-  participants ExpenseParticipant[]
-}
+//////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////
 
 enum Currency {
   INR
@@ -88,8 +23,84 @@ enum SplitType {
   SHARE
 }
 
-// ─── ExpenseParticipant ─────────────────────────────────────────────────────
-// One row per person involved in an expense split.
+//////////////////////////////////////////////////
+// USER
+//////////////////////////////////////////////////
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  createdGroups         Group[]              @relation("GroupCreator")
+  groupMemberships      GroupMember[]
+  expensesPaid          Expense[]            @relation("ExpensePayer")
+  expenseParticipations ExpenseParticipant[]
+  settlementsPaid       Settlement[]         @relation("SettlementPayer")
+  settlementsReceived   Settlement[]         @relation("SettlementReceiver")
+}
+
+//////////////////////////////////////////////////
+// GROUP
+//////////////////////////////////////////////////
+
+model Group {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdBy Int
+  createdAt DateTime @default(now())
+
+  // Relations
+  creator     User          @relation("GroupCreator", fields: [createdBy], references: [id])
+  members     GroupMember[]
+  expenses    Expense[]
+  settlements Settlement[]
+}
+
+//////////////////////////////////////////////////
+// GROUP MEMBER
+//////////////////////////////////////////////////
+
+model GroupMember {
+  id       Int       @id @default(autoincrement())
+  groupId  Int
+  userId   Int
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  // Relations
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+//////////////////////////////////////////////////
+// EXPENSE
+//////////////////////////////////////////////////
+
+model Expense {
+  id          Int       @id @default(autoincrement())
+  groupId     Int
+  title       String
+  amount      Decimal   @db.Decimal(10, 2)
+  currency    Currency  @default(INR)
+  paidBy      Int
+  expenseDate DateTime
+  splitType   SplitType
+
+  // Relations
+  group        Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer        User                 @relation("ExpensePayer", fields: [paidBy], references: [id])
+  participants ExpenseParticipant[]
+}
+
+//////////////////////////////////////////////////
+// EXPENSE PARTICIPANT
+//////////////////////////////////////////////////
 
 model ExpenseParticipant {
   id          Int     @id @default(autoincrement())
@@ -97,22 +108,27 @@ model ExpenseParticipant {
   userId      Int
   shareAmount Decimal @db.Decimal(10, 2)
 
+  // Relations
   expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([expenseId, userId])
 }
 
-// ─── Settlement ─────────────────────────────────────────────────────────────
-// Kept for future balance/settlement APIs — not implemented in Part 1–4.
+//////////////////////////////////////////////////
+// SETTLEMENT
+//////////////////////////////////////////////////
 
 model Settlement {
   id          Int      @id @default(autoincrement())
+  groupId     Int
   payerId     Int
   receiverId  Int
   amount      Decimal  @db.Decimal(10, 2)
   paymentDate DateTime @default(now())
 
-  payer    User @relation("SettlementPayer", fields: [payerId], references: [id])
-  receiver User @relation("SettlementReceiver", fields: [receiverId], references: [id])
+  // Relations
+  group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer    User  @relation("SettlementPayer", fields: [payerId], references: [id])
+  receiver User  @relation("SettlementReceiver", fields: [receiverId], references: [id])
 }
