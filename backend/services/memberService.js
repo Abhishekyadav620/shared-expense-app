@@ -79,6 +79,28 @@ function parseDate(value, fieldName) {
   return date;
 }
 
+/** Normalize to UTC midnight for date-only storage (avoids timezone shift in DB). */
+function toDateOnly(date) {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) {
+    return d;
+  }
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** Parse YYYY-MM-DD (or ISO string) as a date-only UTC value. */
+function parseDateOnly(value, fieldName) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(date.getTime())) {
+      throw validationError(`Invalid ${fieldName}`);
+    }
+    return date;
+  }
+  return toDateOnly(parseDate(value, fieldName));
+}
+
 /**
  * List all members for a group — active and former — with user details.
  */
@@ -148,9 +170,9 @@ async function addMember(groupId, userId, { email, joinedAt }) {
 }
 
 /**
- * Remove member — sets leftAt (soft leave). Does not delete the row.
+ * Mark member as left — sets leftAt (soft delete). Row is never deleted.
  */
-async function removeMember(groupId, memberId, userId, { leftAt }) {
+async function markMemberLeft(groupId, memberId, userId, { leaveDate }) {
   await verifyGroupAccess(groupId, userId);
   const member = await findMemberInGroup(groupId, memberId);
 
@@ -158,16 +180,78 @@ async function removeMember(groupId, memberId, userId, { leftAt }) {
     throw validationError('Member has already left this group');
   }
 
-  const leaveDate = leftAt ? parseDate(leftAt, 'leave date') : new Date();
+  if (!leaveDate) {
+    throw validationError('Leave date is required');
+  }
 
-  if (leaveDate < member.joinedAt) {
+  const parsedLeaveDate = parseDateOnly(leaveDate, 'leave date');
+  const joinedDateOnly = toDateOnly(member.joinedAt);
+
+  if (parsedLeaveDate < joinedDateOnly) {
     throw validationError('Leave date cannot be before join date');
   }
 
   return prisma.groupMember.update({
     where: { id: member.id },
-    data: { leftAt: leaveDate },
+    data: { leftAt: parsedLeaveDate },
     include: memberInclude,
+  });
+}
+
+/**
+ * Edit an existing leave date (historical correction for inactive members).
+ */
+async function editLeaveDate(groupId, memberId, userId, { leaveDate }) {
+  await verifyGroupAccess(groupId, userId);
+  const member = await findMemberInGroup(groupId, memberId);
+
+  if (!member.leftAt) {
+    throw validationError('Member is still active — use Mark Left instead');
+  }
+
+  if (!leaveDate) {
+    throw validationError('Leave date is required');
+  }
+
+  const parsedLeaveDate = parseDateOnly(leaveDate, 'leave date');
+  const joinedDateOnly = toDateOnly(member.joinedAt);
+
+  if (parsedLeaveDate < joinedDateOnly) {
+    throw validationError('Leave date cannot be before join date');
+  }
+
+  return prisma.groupMember.update({
+    where: { id: member.id },
+    data: { leftAt: parsedLeaveDate },
+    include: memberInclude,
+  });
+}
+
+/**
+ * Reactivate a former member — clears leftAt so they are active again.
+ */
+async function reactivateMember(groupId, memberId, userId) {
+  await verifyGroupAccess(groupId, userId);
+  const member = await findMemberInGroup(groupId, memberId);
+
+  if (!member.leftAt) {
+    throw validationError('Member is already active');
+  }
+
+  return prisma.groupMember.update({
+    where: { id: member.id },
+    data: { leftAt: null },
+    include: memberInclude,
+  });
+}
+
+/**
+ * Remove member — sets leftAt (soft leave). Does not delete the row.
+ * @deprecated Use markMemberLeft — kept for backward compatibility.
+ */
+async function removeMember(groupId, memberId, userId, { leftAt }) {
+  return markMemberLeft(groupId, memberId, userId, {
+    leaveDate: leftAt || new Date().toISOString().split('T')[0],
   });
 }
 
@@ -184,7 +268,7 @@ async function updateJoinDate(groupId, memberId, userId, { joinedAt }) {
 
   const newJoinDate = parseDate(joinedAt, 'join date');
 
-  if (member.leftAt && newJoinDate > member.leftAt) {
+  if (member.leftAt && toDateOnly(newJoinDate) > toDateOnly(member.leftAt)) {
     throw validationError('Join date cannot be after leave date');
   }
 
@@ -197,32 +281,19 @@ async function updateJoinDate(groupId, memberId, userId, { joinedAt }) {
 
 /**
  * Update when a member left the group (historical correction).
+ * @deprecated Use editLeaveDate — kept for backward compatibility.
  */
 async function updateLeaveDate(groupId, memberId, userId, { leftAt }) {
-  await verifyGroupAccess(groupId, userId);
-  const member = await findMemberInGroup(groupId, memberId);
-
-  if (!leftAt) {
-    throw validationError('Leave date is required');
-  }
-
-  const newLeaveDate = parseDate(leftAt, 'leave date');
-
-  if (newLeaveDate < member.joinedAt) {
-    throw validationError('Leave date cannot be before join date');
-  }
-
-  return prisma.groupMember.update({
-    where: { id: member.id },
-    data: { leftAt: newLeaveDate },
-    include: memberInclude,
-  });
+  return editLeaveDate(groupId, memberId, userId, { leaveDate: leftAt });
 }
 
 module.exports = {
   getMembers,
   addMember,
   removeMember,
+  markMemberLeft,
+  editLeaveDate,
+  reactivateMember,
   updateJoinDate,
   updateLeaveDate,
 };

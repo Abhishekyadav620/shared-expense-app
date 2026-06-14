@@ -111,10 +111,87 @@ async function updateLeaveDate(req, res, next) {
   }
 }
 
+/**
+ * Resolve member id from route params (:id or :memberId).
+ */
+function getMemberId(req) {
+  return req.params.id || req.params.memberId;
+}
+
+/**
+ * PUT/PATCH /api/groups/:groupId/members/:id/leave
+ * Body: { leaveDate } or { leftAt } (legacy)
+ */
+async function markMemberLeft(req, res, next) {
+  try {
+    const { groupId } = req.params;
+    const memberId = getMemberId(req);
+    const userId = req.user.id;
+    const leaveDate = req.body.leaveDate || req.body.leftAt;
+
+    const member = await memberService.markMemberLeft(groupId, memberId, userId, { leaveDate });
+
+    res.status(200).json({
+      success: true,
+      message: 'Member marked as left',
+      data: member,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT/PATCH /api/groups/:groupId/members/:id/edit-leave
+ * Body: { leaveDate } or { leftAt } (legacy)
+ */
+async function editLeaveDate(req, res, next) {
+  try {
+    const { groupId } = req.params;
+    const memberId = getMemberId(req);
+    const userId = req.user.id;
+    const leaveDate = req.body.leaveDate || req.body.leftAt;
+
+    const member = await memberService.editLeaveDate(groupId, memberId, userId, { leaveDate });
+
+    res.status(200).json({
+      success: true,
+      message: 'Leave date updated successfully',
+      data: member,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT/PATCH /api/groups/:groupId/members/:id/reactivate
+ */
+async function reactivateMember(req, res, next) {
+  try {
+    const { groupId } = req.params;
+    const memberId = getMemberId(req);
+    const userId = req.user.id;
+
+    const member = await memberService.reactivateMember(groupId, memberId, userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Member reactivated successfully',
+      data: member,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getMembers,
   addMember,
   removeMember,
+  markMemberLeft,
+  editLeaveDate,
+  reactivateMember,
   updateJoinDate,
   updateLeaveDate,
 };
