@@ -66,6 +66,17 @@ function errorHandler(err, req, res, next) {
     }
   }
 
+  // ── Multer: file upload errors (size limit, wrong type) ───────────────────
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    statusCode = 400;
+    message = 'File too large. Maximum size is 5 MB';
+  }
+
+  if (err.name === 'MulterError') {
+    statusCode = 400;
+    message = err.message;
+  }
+
   // ── Build JSON response ───────────────────────────────────────────────────
   const response = {
     success: false,
