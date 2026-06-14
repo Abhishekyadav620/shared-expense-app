@@ -33,5 +33,7 @@ router.use(authMiddleware);
 
 router.post('/', upload.single('file'), importController.uploadCsv);
 router.use('/anomalies', anomalyRoutes);
+const finalImportRoutes = require('./finalImportRoutes');
+router.use('/finalize', finalImportRoutes);
 
 module.exports = router;

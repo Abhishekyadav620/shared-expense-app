@@ -158,7 +158,7 @@ async function resolveUser(tx, identifier, cache) {
 
   const user = await tx.user.findFirst({
     where: {
-      OR: [{ email: key }, { name: { equals: identifier, mode: 'insensitive' } }],
+      OR: [{ email: key }, { name: identifier }],
     },
   });
 
