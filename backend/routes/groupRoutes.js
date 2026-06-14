@@ -10,6 +10,8 @@
 const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
 const groupController = require('../controllers/groupController');
+const memberRoutes = require('./memberRoutes');
+const { groupExpenseRouter } = require('./expenseRoutes');
 
 const router = express.Router();
 
@@ -18,6 +20,11 @@ router.use(authMiddleware);
 
 router.post('/', groupController.createGroup);
 router.get('/', groupController.getAllGroups);
+
+// Member routes must be registered before /:id to avoid route conflicts
+router.use('/:groupId/members', memberRoutes);
+router.use('/:groupId/expenses', groupExpenseRouter);
+
 router.get('/:id', groupController.getGroupById);
 router.put('/:id', groupController.updateGroup);
 router.delete('/:id', groupController.deleteGroup);

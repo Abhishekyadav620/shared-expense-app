@@ -10,13 +10,15 @@ import DashboardPage from './pages/DashboardPage';
 import GroupsPage from './pages/GroupsPage';
 import CreateGroupPage from './pages/CreateGroupPage';
 import GroupDetailsPage from './pages/GroupDetailsPage';
+import ExpensesPage from './pages/ExpensesPage';
+import CreateExpensePage from './pages/CreateExpensePage';
+import ExpenseDetailsPage from './pages/ExpenseDetailsPage';
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Protected — requires JWT in localStorage */}
           <Route
             path="/"
             element={
@@ -26,7 +28,6 @@ function App() {
             }
           />
 
-          {/* Group management — all protected */}
           <Route
             path="/groups"
             element={
@@ -51,12 +52,35 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/groups/:groupId/expenses/create"
+            element={
+              <ProtectedRoute>
+                <CreateExpensePage />
+              </ProtectedRoute>
+            }
+          />
 
-          {/* Public auth pages */}
+          <Route
+            path="/expenses"
+            element={
+              <ProtectedRoute>
+                <ExpensesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/expenses/:id"
+            element={
+              <ProtectedRoute>
+                <ExpenseDetailsPage />
+              </ProtectedRoute>
+            }
+          />
+
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
-          {/* Catch-all → dashboard (ProtectedRoute will redirect if not logged in) */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

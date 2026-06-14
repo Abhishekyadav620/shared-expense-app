@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const groupRoutes = require('./routes/groupRoutes');
+const { router: expenseRoutes } = require('./routes/expenseRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -31,6 +32,7 @@ app.get('/', (req, res) => {
 // ── Route mounting — each router handles a feature area ──────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/expenses', expenseRoutes);
 
 // ── Error handler MUST be last — catches errors from all routes above ────────
 app.use(errorHandler);
