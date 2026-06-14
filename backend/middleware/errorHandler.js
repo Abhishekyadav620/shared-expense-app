@@ -24,7 +24,10 @@ function errorHandler(err, req, res, next) {
   // ── Prisma: invalid query shape or wrong field types ───────────────────────
   if (err instanceof Prisma.PrismaClientValidationError) {
     statusCode = 400;
-    message = 'Invalid data provided';
+    message =
+      process.env.NODE_ENV === 'development'
+        ? err.message.split('\n').slice(-3).join(' ').trim() || 'Invalid data provided'
+        : 'Invalid data provided';
   }
 
   // ── Prisma: known database errors (unique constraint, not found, etc.) ───

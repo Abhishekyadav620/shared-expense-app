@@ -1,15 +1,11 @@
 /**
- * Balance engine — calculates who owes whom within a group.
+ * Balance engine — computes balances dynamically from stored expenses and settlements.
  *
- * For each expense:
- *   - Payer's "paid"   += expense.amount
- *   - Each participant's "owed" += their shareAmount
- *
- * balance = paid - owed
- *   Positive → person should receive money
- *   Negative → person owes money
+ * Formula:
+ * balance = Total Paid - Total Share - Settlements Paid + Settlements Received
  */
 const prisma = require('./prismaClient');
+const { toInrCents, getUsdToInrRate } = require('./currencyService');
 
 function validationError(message) {
   const error = new Error(message);
@@ -28,11 +24,34 @@ function round2(num) {
   return Math.round(num * 100) / 100;
 }
 
-/**
- * Verify the requesting user can access this group.
- */
+function toCents(value) {
+  return Math.round(Number(value || 0) * 100);
+}
+
+function fromCents(value) {
+  return round2(value / 100);
+}
+
+function toDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isActiveOnDate(member, expenseDate) {
+  const joinedAt = toDate(member.joinedAt);
+  const leftAt = toDate(member.leftAt);
+
+  if (!joinedAt || !expenseDate) {
+    return false;
+  }
+
+  return joinedAt <= expenseDate && (!leftAt || expenseDate <= leftAt);
+}
+
 async function verifyGroupAccess(groupId, userId) {
   const id = Number(groupId);
+
   if (Number.isNaN(id)) {
     throw validationError('Invalid group ID');
   }
@@ -42,7 +61,7 @@ async function verifyGroupAccess(groupId, userId) {
       id,
       OR: [
         { createdBy: userId },
-        { members: { some: { userId, leftAt: null } } },
+        { members: { some: { userId } } },
       ],
     },
   });
@@ -54,74 +73,144 @@ async function verifyGroupAccess(groupId, userId) {
   return group;
 }
 
-/**
- * Calculate net balance for every user involved in the group's expenses.
- */
-async function getGroupBalances(groupId, userId) {
+function ensureMemberEntry(ledger, member) {
+  if (!ledger.has(member.userId)) {
+    ledger.set(member.userId, {
+      userId: member.userId,
+      name: member.user.name,
+      userName: member.user.name,
+      paidCents: 0,
+      shareCents: 0,
+      settlementsPaidCents: 0,
+      settlementsReceivedCents: 0,
+    });
+  }
+}
+
+function buildBalanceRow(entry) {
+  const paid = fromCents(entry.paidCents);
+  const share = fromCents(entry.shareCents);
+  const settlementsPaid = fromCents(entry.settlementsPaidCents);
+  const settlementsReceived = fromCents(entry.settlementsReceivedCents);
+  const balance = round2(paid - share - settlementsPaid + settlementsReceived);
+
+  return {
+    userId: entry.userId,
+    name: entry.name,
+    userName: entry.userName,
+    paid,
+    share,
+    balance,
+    status: balance > 0 ? 'gets_back' : balance < 0 ? 'owes' : 'settled',
+  };
+}
+
+async function getGroupBalances(groupId, userId, usdToInrRate) {
   await verifyGroupAccess(groupId, userId);
 
-  const expenses = await prisma.expense.findMany({
-    where: { groupId: Number(groupId) },
-    include: {
-      payer: { select: { id: true, name: true } },
-      participants: {
-        include: { user: { select: { id: true, name: true } } },
-      },
-    },
-  });
+  const numericGroupId = Number(groupId);
+  const rate = getUsdToInrRate(usdToInrRate);
 
-  // Accumulate paid and owed per userId
+  const [members, expenses, settlements] = await Promise.all([
+    prisma.groupMember.findMany({
+      where: { groupId: numericGroupId },
+      include: { user: { select: { id: true, name: true } } },
+      orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
+    }),
+    prisma.expense.findMany({
+      where: { groupId: numericGroupId },
+      include: {
+        payer: { select: { id: true, name: true } },
+        participants: {
+          include: { user: { select: { id: true, name: true } } },
+        },
+      },
+      orderBy: { expenseDate: 'asc' },
+    }),
+    prisma.settlement.findMany({
+      where: { groupId: numericGroupId },
+      include: {
+        payer: { select: { id: true, name: true } },
+        receiver: { select: { id: true, name: true } },
+      },
+      orderBy: { paymentDate: 'asc' },
+    }),
+  ]);
+
   const ledger = new Map();
 
-  const ensureUser = (id, name) => {
-    if (!ledger.has(id)) {
-      ledger.set(id, { userId: id, userName: name, paid: 0, owed: 0 });
-    }
-  };
+  for (const member of members) {
+    ensureMemberEntry(ledger, member);
+  }
 
   for (const expense of expenses) {
-    const amount = parseFloat(expense.amount);
+    const expenseDate = toDate(expense.expenseDate);
 
-    // Payer fronted the full bill
-    ensureUser(expense.paidBy, expense.payer.name);
-    ledger.get(expense.paidBy).paid += amount;
+    if (!expenseDate) {
+      continue;
+    }
 
-    // Each participant owes their share
+    const payerMember = members.find((member) => member.userId === expense.paidBy);
+
+    if (payerMember && isActiveOnDate(payerMember, expenseDate)) {
+      ensureMemberEntry(ledger, payerMember);
+      ledger.get(expense.paidBy).paidCents += toInrCents(expense.amount, expense.currency, rate);
+    }
+
     for (const participant of expense.participants) {
-      ensureUser(participant.userId, participant.user.name);
-      ledger.get(participant.userId).owed += parseFloat(participant.shareAmount);
+      const participantMember = members.find((member) => member.userId === participant.userId);
+
+      if (!participantMember || !isActiveOnDate(participantMember, expenseDate)) {
+        continue;
+      }
+
+      ensureMemberEntry(ledger, participantMember);
+      ledger.get(participant.userId).shareCents += toInrCents(
+        participant.shareAmount,
+        expense.currency,
+        rate
+      );
     }
   }
 
-  // Apply recorded settlements — payer paid receiver, adjusting net balances
-  const settlements = await prisma.settlement.findMany({
-    where: { groupId: Number(groupId) },
-    include: {
-      payer: { select: { id: true, name: true } },
-      receiver: { select: { id: true, name: true } },
-    },
-  });
-
   for (const settlement of settlements) {
-    const amount = parseFloat(settlement.amount);
-    ensureUser(settlement.payerId, settlement.payer.name);
-    ensureUser(settlement.receiverId, settlement.receiver.name);
-    // Payer settled debt → balance improves; receiver got paid → balance decreases
-    ledger.get(settlement.payerId).paid += amount;
-    ledger.get(settlement.receiverId).owed += amount;
+    const amountCents = toCents(settlement.amount);
+
+    if (!ledger.has(settlement.payerId)) {
+      ledger.set(settlement.payerId, {
+        userId: settlement.payerId,
+        name: settlement.payer.name,
+        userName: settlement.payer.name,
+        paidCents: 0,
+        shareCents: 0,
+        settlementsPaidCents: 0,
+        settlementsReceivedCents: 0,
+      });
+    }
+
+    if (!ledger.has(settlement.receiverId)) {
+      ledger.set(settlement.receiverId, {
+        userId: settlement.receiverId,
+        name: settlement.receiver.name,
+        userName: settlement.receiver.name,
+        paidCents: 0,
+        shareCents: 0,
+        settlementsPaidCents: 0,
+        settlementsReceivedCents: 0,
+      });
+    }
+
+    ledger.get(settlement.payerId).settlementsPaidCents += amountCents;
+    ledger.get(settlement.receiverId).settlementsReceivedCents += amountCents;
   }
 
-  // Convert to balance array: paid - owed
-  const balances = Array.from(ledger.values()).map((entry) => ({
-    userId: entry.userId,
-    userName: entry.userName,
-    balance: round2(entry.paid - entry.owed),
-  }));
-
-  // Creditors (positive) first, then debtors (negative)
-  balances.sort((a, b) => b.balance - a.balance);
-
-  return balances;
+  return {
+    usdToInrRate: rate,
+    baseCurrency: 'INR',
+    balances: Array.from(ledger.values())
+      .map(buildBalanceRow)
+      .sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name)),
+  };
 }
 
 module.exports = {

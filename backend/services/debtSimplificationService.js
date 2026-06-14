@@ -96,8 +96,8 @@ async function countRawExpenseDebts(groupId) {
 /**
  * Fetch group balances, run Min Cash Flow, return simplified payment plan.
  */
-async function getSimplifiedBalances(groupId, userId) {
-  const balances = await balanceService.getGroupBalances(groupId, userId);
+async function getSimplifiedBalances(groupId, userId, usdToInrRate) {
+  const { balances } = await balanceService.getGroupBalances(groupId, userId, usdToInrRate);
   const transactions = minCashFlow(balances);
   const originalTransactionCount = await countRawExpenseDebts(groupId);
   const transactionsSaved = Math.max(0, originalTransactionCount - transactions.length);

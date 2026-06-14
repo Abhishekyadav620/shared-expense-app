@@ -58,8 +58,8 @@ function simplifyBalances(balances) {
 /**
  * Fetch group balances and return simplified payment plan.
  */
-async function getSimplifiedDebts(groupId, userId) {
-  const balances = await balanceService.getGroupBalances(groupId, userId);
+async function getSimplifiedDebts(groupId, userId, usdToInrRate) {
+  const { balances } = await balanceService.getGroupBalances(groupId, userId, usdToInrRate);
   const simplified = simplifyBalances(balances);
 
   return {

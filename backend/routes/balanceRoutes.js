@@ -11,6 +11,7 @@ const router = express.Router({ mergeParams: true });
 
 // /simplified must be registered before / to avoid being treated as a param
 router.get('/simplified', balanceController.getSimplifiedDebts);
+router.get('/:userId/breakdown', balanceController.getMemberBalanceBreakdown);
 router.get('/', balanceController.getGroupBalances);
 
 module.exports = router;

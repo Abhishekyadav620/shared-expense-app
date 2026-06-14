@@ -67,16 +67,27 @@ async function verifyGroupAccess(groupId, userId) {
 }
 
 /**
- * Verify all participant userIds are active members of the group.
+ * Verify all participant userIds were active group members on the expense date.
  */
-async function verifyActiveParticipants(groupId, participantUserIds) {
-  const activeMembers = await prisma.groupMember.findMany({
-    where: { groupId: Number(groupId), leftAt: null, userId: { in: participantUserIds } },
-    select: { userId: true },
+async function verifyActiveMembersOnDate(groupId, participantUserIds, expenseDate) {
+  const date = parseDate(expenseDate, 'expense date');
+
+  const members = await prisma.groupMember.findMany({
+    where: { groupId: Number(groupId), userId: { in: participantUserIds } },
   });
 
-  if (activeMembers.length !== participantUserIds.length) {
-    throw validationError('All participants must be active members of the group');
+  for (const uid of participantUserIds) {
+    const membership = members.find((m) => m.userId === uid);
+    if (!membership) {
+      throw validationError('All participants must be members of the group');
+    }
+
+    const joinedAt = new Date(membership.joinedAt);
+    const leftAt = membership.leftAt ? new Date(membership.leftAt) : null;
+
+    if (date < joinedAt || (leftAt && date > leftAt)) {
+      throw validationError('All participants must be active members on the expense date');
+    }
   }
 }
 
@@ -205,11 +216,11 @@ async function createExpense(groupId, userId, data) {
   validateExpenseInput(data);
 
   const participantUserIds = data.participants.map((p) => Number(p.userId));
-  await verifyActiveParticipants(groupId, participantUserIds);
+  await verifyActiveMembersOnDate(groupId, participantUserIds, data.expenseDate);
 
   const paidById = Number(data.paidBy);
   if (!participantUserIds.includes(paidById)) {
-    await verifyActiveParticipants(groupId, [paidById]);
+    await verifyActiveMembersOnDate(groupId, [paidById], data.expenseDate);
   }
 
   const shares = calculateShares(data.amount, data.splitType, data.participants);

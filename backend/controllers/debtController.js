@@ -13,13 +13,15 @@ async function getSimplifiedBalances(req, res, next) {
     const { groupId } = req.params;
     const userId = req.user.id;
 
+    const usdToInrRate = req.query.usdToInrRate;
+
     const {
       transactions,
       transactionCount,
       originalTransactionCount,
       transactionsSaved,
       balances,
-    } = await debtSimplificationService.getSimplifiedBalances(groupId, userId);
+    } = await debtSimplificationService.getSimplifiedBalances(groupId, userId, usdToInrRate);
 
     res.status(200).json({
       success: true,

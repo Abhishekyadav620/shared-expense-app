@@ -132,3 +132,4 @@ model Settlement {
   payer    User  @relation("SettlementPayer", fields: [payerId], references: [id])
   receiver User  @relation("SettlementReceiver", fields: [receiverId], references: [id])
 }
+

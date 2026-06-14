@@ -8,6 +8,7 @@ function generateReport({
   anomalyCount,
   actionsTaken,
   importedDetails = [],
+  usdToInrRate,
 }) {
   return {
     totalRows,
@@ -16,6 +17,7 @@ function generateReport({
     anomalyCount,
     actionsTaken: actionsTaken || [],
     importedDetails,
+    usdToInrRate: usdToInrRate || null,
     generatedAt: new Date().toISOString(),
   };
 }

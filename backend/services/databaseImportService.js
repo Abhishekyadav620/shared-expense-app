@@ -181,12 +181,8 @@ async function ensureGroupMember(tx, groupId, userId) {
     await tx.groupMember.create({
       data: { groupId, userId },
     });
-  } else if (existing.leftAt) {
-    await tx.groupMember.update({
-      where: { id: existing.id },
-      data: { leftAt: null },
-    });
   }
+  // Do NOT silently reactivate left members — Sam/Meera requirement
 }
 
 function isSettlementRow(row) {
@@ -322,7 +318,7 @@ async function importExpenseRow(tx, row, groupId, userCache) {
  * @param {number} groupId — target group for expense/settlement rows
  * @param {number} userId — requesting user
  */
-async function importApprovedRows(approvedRows, groupId, userId) {
+async function importApprovedRows(approvedRows, groupId, userId, usdToInrRate) {
   if (!Array.isArray(approvedRows) || approvedRows.length === 0) {
     throw validationError('approvedRows array is required');
   }

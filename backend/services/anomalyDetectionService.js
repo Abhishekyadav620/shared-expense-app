@@ -19,6 +19,13 @@ const ISSUE_TYPE = {
   INVALID_PERCENTAGE_SPLIT: 'INVALID_PERCENTAGE_SPLIT',
   MISSING_PARTICIPANTS: 'MISSING_PARTICIPANTS',
   USD_CURRENCY: 'USD_CURRENCY',
+  MISSING_AMOUNT: 'MISSING_AMOUNT',
+  MISSING_DATE: 'MISSING_DATE',
+  MISSING_PAYER: 'MISSING_PAYER',
+  ZERO_AMOUNT: 'ZERO_AMOUNT',
+  UNKNOWN_SPLIT_TYPE: 'UNKNOWN_SPLIT_TYPE',
+  INVALID_EXACT_SPLIT: 'INVALID_EXACT_SPLIT',
+  MISSING_RECEIVER: 'MISSING_RECEIVER',
 };
 
 const SETTLEMENT_KEYWORDS = /settlement|settle up|repayment|paid to|transfer|reimbursement/i;
@@ -234,8 +241,156 @@ function detectUsdCurrency(normalizedRows, anomalies) {
           row.rowNumber,
           ISSUE_TYPE.USD_CURRENCY,
           SEVERITY.LOW,
-          `Row ${row.rowNumber} is in USD. Currency conversion is not applied automatically.`,
+          `Row ${row.rowNumber} is in USD. Balances convert to INR using the approved exchange rate — not 1:1.`,
           'Review the exchange rate and confirm the INR equivalent before approving.'
+        )
+      );
+    }
+  }
+}
+
+/** 9 — missing or invalid amount. */
+function detectMissingAmount(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (row.recordType === 'settlement') continue;
+    if (Number.isNaN(row.amount)) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.MISSING_AMOUNT,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has no valid amount.`,
+          'Add a positive amount or reject this row.'
+        )
+      );
+    }
+  }
+}
+
+/** 10 — zero amount. */
+function detectZeroAmount(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (!Number.isNaN(row.amount) && row.amount === 0) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.ZERO_AMOUNT,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has amount 0.`,
+          'Correct the amount or reject this row.'
+        )
+      );
+    }
+  }
+}
+
+/** 11 — missing expense date. */
+function detectMissingDate(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (row.recordType === 'settlement' || row.recordType === 'user' || row.recordType === 'group') {
+      continue;
+    }
+    if (!row.expenseDate || !parseExpenseDate(row.expenseDate)) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.MISSING_DATE,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has a missing or invalid date.`,
+          'Add a valid expense date or reject this row.'
+        )
+      );
+    }
+  }
+}
+
+/** 12 — missing payer on expense rows. */
+function detectMissingPayer(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (row.recordType === 'settlement' || row.recordType === 'user' || row.recordType === 'group') {
+      continue;
+    }
+    if (!row.paidBy) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.MISSING_PAYER,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has no payer specified.`,
+          'Add who paid for this expense or reject the row.'
+        )
+      );
+    }
+  }
+}
+
+/** 13 — unknown split type. */
+function detectUnknownSplitType(normalizedRows, anomalies) {
+  const valid = ['EQUAL', 'EXACT', 'PERCENTAGE', 'SHARE'];
+  for (const row of normalizedRows) {
+    if (row.recordType === 'settlement' || row.recordType === 'user' || row.recordType === 'group') {
+      continue;
+    }
+    if (row.splitType && !valid.includes(row.splitType)) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.UNKNOWN_SPLIT_TYPE,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has unknown split type "${row.splitType}".`,
+          'Use EQUAL, EXACT, PERCENTAGE, or SHARE.'
+        )
+      );
+    }
+  }
+}
+
+/** 14 — EXACT split shares must sum to expense amount. */
+function detectInvalidExactSplits(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (row.splitType !== 'EXACT' || Number.isNaN(row.amount)) continue;
+    if (!row.shares) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.INVALID_EXACT_SPLIT,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} uses EXACT split but has no share amounts.`,
+          'Add exact share values that sum to the expense amount.'
+        )
+      );
+      continue;
+    }
+    const values = row.shares.split(',').map((v) => parseFloat(v.trim()));
+    const sum = values.reduce((acc, n) => acc + (Number.isNaN(n) ? 0 : n), 0);
+    if (Math.abs(sum - row.amount) > 0.01) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.INVALID_EXACT_SPLIT,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} EXACT shares sum to ${sum.toFixed(2)} but amount is ${row.amount}.`,
+          'Fix share amounts to match the expense total.'
+        )
+      );
+    }
+  }
+}
+
+/** 15 — settlement rows need a receiver. */
+function detectMissingReceiver(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    const isSettlement =
+      row.recordType === 'settlement' ||
+      (row.title && SETTLEMENT_KEYWORDS.test(row.title));
+    if (isSettlement && !row.receiver) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.MISSING_RECEIVER,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} is a settlement but has no receiver.`,
+          'Add who received the payment or reject the row.'
         )
       );
     }
@@ -397,9 +552,16 @@ async function detectAnomalies(rows, groupId, userId) {
   const anomalies = [];
 
   detectCsvDuplicates(normalizedRows, anomalies);
+  detectMissingAmount(normalizedRows, anomalies);
+  detectZeroAmount(normalizedRows, anomalies);
   detectNegativeAmounts(normalizedRows, anomalies);
+  detectMissingDate(normalizedRows, anomalies);
+  detectMissingPayer(normalizedRows, anomalies);
+  detectMissingReceiver(normalizedRows, anomalies);
+  detectUnknownSplitType(normalizedRows, anomalies);
   detectSettlementAsExpense(normalizedRows, anomalies);
   detectInvalidPercentageSplits(normalizedRows, anomalies);
+  detectInvalidExactSplits(normalizedRows, anomalies);
   detectMissingParticipants(normalizedRows, anomalies);
   detectUsdCurrency(normalizedRows, anomalies);
 

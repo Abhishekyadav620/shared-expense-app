@@ -2,6 +2,7 @@
  * Balance HTTP handler — returns group balance summary and simplified debts.
  */
 const balanceService = require('../services/balanceService');
+const balanceBreakdownService = require('../services/balanceBreakdownService');
 const simplifyService = require('../services/simplifyService');
 
 /**
@@ -11,12 +12,40 @@ async function getGroupBalances(req, res, next) {
   try {
     const { groupId } = req.params;
     const userId = req.user.id;
+    const usdToInrRate = req.query.usdToInrRate;
 
-    const balances = await balanceService.getGroupBalances(groupId, userId);
+    const result = await balanceService.getGroupBalances(groupId, userId, usdToInrRate);
 
     res.status(200).json({
       success: true,
-      balances,
+      usdToInrRate: result.usdToInrRate,
+      baseCurrency: result.baseCurrency,
+      balances: result.balances,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/groups/:groupId/balances/:userId/breakdown
+ */
+async function getMemberBalanceBreakdown(req, res, next) {
+  try {
+    const { groupId, userId: memberUserId } = req.params;
+    const userId = req.user.id;
+    const usdToInrRate = req.query.usdToInrRate;
+
+    const breakdown = await balanceBreakdownService.getMemberBalanceBreakdown(
+      groupId,
+      memberUserId,
+      userId,
+      usdToInrRate
+    );
+
+    res.status(200).json({
+      success: true,
+      data: breakdown,
     });
   } catch (error) {
     next(error);
@@ -31,8 +60,10 @@ async function getSimplifiedDebts(req, res, next) {
     const { groupId } = req.params;
     const userId = req.user.id;
 
+    const usdToInrRate = req.query.usdToInrRate;
+
     const { simplified, transactionCount, balances } =
-      await simplifyService.getSimplifiedDebts(groupId, userId);
+      await simplifyService.getSimplifiedDebts(groupId, userId, usdToInrRate);
 
     res.status(200).json({
       success: true,
@@ -47,5 +78,6 @@ async function getSimplifiedDebts(req, res, next) {
 
 module.exports = {
   getGroupBalances,
+  getMemberBalanceBreakdown,
   getSimplifiedDebts,
 };
