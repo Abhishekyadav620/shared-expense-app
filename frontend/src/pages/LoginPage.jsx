@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -22,6 +24,10 @@ function LoginPage() {
 
     if (!email.trim()) {
       setError('Email is required');
+      return;
+    }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      setError('Please enter a valid email address');
       return;
     }
     if (!password) {

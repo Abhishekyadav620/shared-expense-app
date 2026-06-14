@@ -6,6 +6,10 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const NAME_REGEX = /^[\p{L}][\p{L}\s.'-]{1,49}$/u;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+
 function RegisterPage() {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -25,12 +29,20 @@ function RegisterPage() {
       setError('Name is required');
       return;
     }
+    if (!NAME_REGEX.test(name.trim())) {
+      setError('Name must contain only letters and valid separators, and be 2 to 50 characters long');
+      return;
+    }
     if (!email.trim()) {
       setError('Email is required');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!EMAIL_REGEX.test(email.trim())) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    if (!PASSWORD_REGEX.test(password)) {
+      setError('Password must be at least 8 characters and include at least one letter, one number, and one special character');
       return;
     }
     if (password !== confirmPassword) {
@@ -104,7 +116,7 @@ function RegisterPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 6 characters"
+              placeholder="8+ chars, 1 letter, 1 number, 1 special char"
               className="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-gray-900 placeholder-gray-400 outline-none transition focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/20"
             />
           </div>

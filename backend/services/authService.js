@@ -9,6 +9,10 @@ const prisma = require('./prismaClient');
 const SALT_ROUNDS = 10;
 const TOKEN_EXPIRY = '7d';
 
+const NAME_REGEX = /^[\p{L}][\p{L}\s.'-]{1,49}$/u;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+
 /**
  * Build a consistent validation error that errorHandler.js understands.
  */
@@ -27,6 +31,18 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
+function isValidName(name) {
+  return NAME_REGEX.test(name.trim());
+}
+
+function isValidEmail(email) {
+  return EMAIL_REGEX.test(email.trim());
+}
+
+function isStrongPassword(password) {
+  return PASSWORD_REGEX.test(password);
+}
+
 /**
  * Register a new user.
  * 1. Validate input
@@ -35,17 +51,29 @@ function sanitizeUser(user) {
  * 4. Persist to MySQL via Prisma
  */
 async function registerUser({ name, email, password }) {
-  if (!name || !name.trim()) {
+  const trimmedName = name?.trim();
+  const trimmedEmail = email?.trim();
+
+  if (!trimmedName) {
     throw validationError('Name is required');
   }
-  if (!email || !email.trim()) {
+  if (!isValidName(trimmedName)) {
+    throw validationError('Name must contain only letters and valid separators, and be 2 to 50 characters long');
+  }
+  if (!trimmedEmail) {
     throw validationError('Email is required');
   }
-  if (!password || password.length < 6) {
-    throw validationError('Password must be at least 6 characters');
+  if (!isValidEmail(trimmedEmail)) {
+    throw validationError('Please enter a valid email address');
+  }
+  if (!password) {
+    throw validationError('Password is required');
+  }
+  if (!isStrongPassword(password)) {
+    throw validationError('Password must be at least 8 characters and include at least one letter, one number, and one special character');
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = trimmedEmail.toLowerCase();
 
   const existingUser = await prisma.user.findUnique({
     where: { email: normalizedEmail },
@@ -59,7 +87,7 @@ async function registerUser({ name, email, password }) {
 
   const user = await prisma.user.create({
     data: {
-      name: name.trim(),
+      name: trimmedName,
       email: normalizedEmail,
       password: hashedPassword,
     },
@@ -76,14 +104,19 @@ async function registerUser({ name, email, password }) {
  * 4. Sign token with { id, email } payload
  */
 async function loginUser({ email, password }) {
-  if (!email || !email.trim()) {
+  const trimmedEmail = email?.trim();
+
+  if (!trimmedEmail) {
     throw validationError('Email is required');
+  }
+  if (!isValidEmail(trimmedEmail)) {
+    throw validationError('Please enter a valid email address');
   }
   if (!password) {
     throw validationError('Password is required');
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = trimmedEmail.toLowerCase();
 
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
