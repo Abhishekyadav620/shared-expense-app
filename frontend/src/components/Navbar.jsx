@@ -8,6 +8,8 @@ const navLinks = [
   { to: '/', label: 'Dashboard' },
   { to: '/groups', label: 'Groups' },
   { to: '/expenses', label: 'Expenses' },
+  { to: '/import', label: 'Import' },
+  { to: '/settlements', label: 'Settlements' },
 ];
 
 function Navbar() {

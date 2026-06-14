@@ -1,20 +1,23 @@
 /**
  * Group details page — group overview + member management.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import MemberList from '../components/MemberList';
 import AddMemberModal from '../components/AddMemberModal';
+import MarkLeftModal from '../components/MarkLeftModal';
+import EditLeaveDateModal from '../components/EditLeaveDateModal';
 import ExpenseCard from '../components/ExpenseCard';
 import EmptyState from '../components/EmptyState';
 import { getGroupById } from '../services/groupService';
 import {
   getMembers,
   addMember,
-  removeMember,
+  markLeft,
+  editLeaveDate,
+  reactivateMember,
   updateJoinDate,
-  updateLeaveDate,
 } from '../services/memberService';
 import { getExpensesByGroup, deleteExpense } from '../services/expenseService';
 
@@ -43,6 +46,10 @@ function GroupDetailsPage() {
   const [expenseDeleteLoading, setExpenseDeleteLoading] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
+  const [markLeftMember, setMarkLeftMember] = useState(null);
+  const [editLeaveMember, setEditLeaveMember] = useState(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [markLeftError, setMarkLeftError] = useState('');
 
   const fetchGroup = useCallback(async () => {
     try {
@@ -91,6 +98,13 @@ function GroupDetailsPage() {
     await Promise.all([fetchGroup(), fetchMembers(), fetchExpenses()]);
   };
 
+  const memberStats = useMemo(() => {
+    const total = members.length;
+    const active = members.filter((m) => m.leftAt === null).length;
+    const inactive = total - active;
+    return { total, active, inactive };
+  }, [members]);
+
   const handleAddMember = async ({ email, joinedAt }) => {
     setAddLoading(true);
     try {
@@ -104,29 +118,57 @@ function GroupDetailsPage() {
     }
   };
 
-  const handleRemove = async (member) => {
-    const leaveDate = window.prompt(
-      'Leave date (YYYY-MM-DD) or leave blank for today:',
-      toInputDate(new Date())
-    );
-    if (leaveDate === null) return;
+  const handleMarkLeft = async ({ leaveDate }) => {
+    if (!markLeftMember) return;
+    setModalLoading(true);
+    setMarkLeftError('');
+    try {
+      await markLeft(id, markLeftMember.id, leaveDate);
+      setMarkLeftMember(null);
+      await refreshAll();
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to mark member as left. Is the backend running?';
+      setMarkLeftError(message);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleEditLeaveDate = async ({ leaveDate }) => {
+    if (!editLeaveMember) return;
+    setModalLoading(true);
+    try {
+      await editLeaveDate(id, editLeaveMember.id, leaveDate);
+      setEditLeaveMember(null);
+      await refreshAll();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update leave date');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleReactivate = async (member) => {
+    if (!window.confirm(`Reactivate ${member.user?.name}? They will become an active member again.`)) {
+      return;
+    }
 
     setActionLoading(member.id);
     try {
-      await removeMember(id, member.id, leaveDate || undefined);
+      await reactivateMember(id, member.id);
       await refreshAll();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to remove member');
+      alert(err.response?.data?.message || 'Failed to reactivate member');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleUpdateJoinDate = async (member) => {
-    const newDate = window.prompt(
-      'New join date (YYYY-MM-DD):',
-      toInputDate(member.joinedAt)
-    );
+  const handleEditJoinDate = async (member) => {
+    const newDate = window.prompt('New join date (YYYY-MM-DD):', toInputDate(member.joinedAt));
     if (!newDate) return;
 
     setActionLoading(member.id);
@@ -135,24 +177,6 @@ function GroupDetailsPage() {
       await refreshAll();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to update join date');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleUpdateLeaveDate = async (member) => {
-    const newDate = window.prompt(
-      'New leave date (YYYY-MM-DD):',
-      member.leftAt ? toInputDate(member.leftAt) : toInputDate(new Date())
-    );
-    if (!newDate) return;
-
-    setActionLoading(member.id);
-    try {
-      await updateLeaveDate(id, member.id, newDate);
-      await refreshAll();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update leave date');
     } finally {
       setActionLoading(null);
     }
@@ -170,8 +194,6 @@ function GroupDetailsPage() {
       setExpenseDeleteLoading(null);
     }
   };
-
-  const activeCount = members.filter((m) => !m.leftAt).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -222,6 +244,12 @@ function GroupDetailsPage() {
                   >
                     + Add Expense
                   </Link>
+                  <Link
+                    to={`/groups/${id}/balances`}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-slate-100"
+                  >
+                    View Balances
+                  </Link>
                 </div>
               </div>
 
@@ -239,8 +267,8 @@ function GroupDetailsPage() {
                   </dd>
                 </div>
                 <div className="rounded-lg bg-indigo-50 p-4">
-                  <dt className="text-sm font-medium text-gray-500">Active Members</dt>
-                  <dd className="mt-1 text-base font-semibold text-indigo-600">{activeCount}</dd>
+                  <dt className="text-sm font-medium text-gray-500">Total Members</dt>
+                  <dd className="mt-1 text-base font-semibold text-indigo-600">{memberStats.total}</dd>
                 </div>
                 <div className="rounded-lg bg-green-50 p-4">
                   <dt className="text-sm font-medium text-gray-500">Expenses</dt>
@@ -253,20 +281,33 @@ function GroupDetailsPage() {
 
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-                <div className="mb-6 flex items-center justify-between">
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Members</h2>
                     <p className="mt-1 text-sm text-gray-500">
-                      {members.length} total · {activeCount} active
+                      Active and inactive members — former members remain visible for history
                     </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-gray-700">
+                      {memberStats.total} total
+                    </span>
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
+                      {memberStats.active} active
+                    </span>
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
+                      {memberStats.inactive} inactive
+                    </span>
                   </div>
                 </div>
 
                 <MemberList
                   members={members}
-                  onRemove={handleRemove}
-                  onUpdateJoinDate={handleUpdateJoinDate}
-                  onUpdateLeaveDate={handleUpdateLeaveDate}
+                  onMarkLeft={setMarkLeftMember}
+                  onEditJoinDate={handleEditJoinDate}
+                  onEditLeaveDate={setEditLeaveMember}
+                  onReactivate={handleReactivate}
                   actionLoading={actionLoading}
                   loading={membersLoading}
                 />
@@ -321,6 +362,26 @@ function GroupDetailsPage() {
         onClose={() => setShowAddModal(false)}
         onSubmit={handleAddMember}
         loading={addLoading}
+      />
+
+      <MarkLeftModal
+        isOpen={Boolean(markLeftMember)}
+        onClose={() => {
+          setMarkLeftMember(null);
+          setMarkLeftError('');
+        }}
+        onSubmit={handleMarkLeft}
+        loading={modalLoading}
+        member={markLeftMember}
+        apiError={markLeftError}
+      />
+
+      <EditLeaveDateModal
+        isOpen={Boolean(editLeaveMember)}
+        onClose={() => setEditLeaveMember(null)}
+        onSubmit={handleEditLeaveDate}
+        loading={modalLoading}
+        member={editLeaveMember}
       />
     </div>
   );

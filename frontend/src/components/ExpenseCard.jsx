@@ -46,7 +46,17 @@ function ExpenseCard({ expense, onDelete, showGroup = true, disabled = false }) 
         </p>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-gray-500">Amount</dt>
+          <dd className="font-semibold text-indigo-600">
+            {formatAmount(expense.amount, expense.currency)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Currency</dt>
+          <dd className="font-medium text-gray-900">{expense.currency}</dd>
+        </div>
         <div>
           <dt className="text-gray-500">Paid by</dt>
           <dd className="font-medium text-gray-900">{expense.payer?.name}</dd>
@@ -56,12 +66,8 @@ function ExpenseCard({ expense, onDelete, showGroup = true, disabled = false }) 
           <dd className="font-medium text-gray-900">{formatDate(expense.expenseDate)}</dd>
         </div>
         <div>
-          <dt className="text-gray-500">Split</dt>
+          <dt className="text-gray-500">Split type</dt>
           <dd className="font-medium text-gray-900">{splitLabels[expense.splitType]}</dd>
-        </div>
-        <div>
-          <dt className="text-gray-500">Participants</dt>
-          <dd className="font-medium text-gray-900">{expense.participants?.length ?? 0}</dd>
         </div>
       </dl>
 

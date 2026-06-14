@@ -13,6 +13,12 @@ import GroupDetailsPage from './pages/GroupDetailsPage';
 import ExpensesPage from './pages/ExpensesPage';
 import CreateExpensePage from './pages/CreateExpensePage';
 import ExpenseDetailsPage from './pages/ExpenseDetailsPage';
+import BalancePage from './pages/BalancePage';
+import SimplifiedBalancePage from './pages/SimplifiedBalancePage';
+import SettlementPage from './pages/SettlementPage';
+import ImportPage from './pages/ImportPage';
+import ImportReviewPage from './pages/ImportReviewPage';
+import ImportReportPage from './pages/ImportReportPage';
 
 function App() {
   return (
@@ -53,6 +59,22 @@ function App() {
             }
           />
           <Route
+            path="/groups/:id/balances"
+            element={
+              <ProtectedRoute>
+                <BalancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/groups/:id/simplified-balances"
+            element={
+              <ProtectedRoute>
+                <SimplifiedBalancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/groups/:groupId/expenses/create"
             element={
               <ProtectedRoute>
@@ -74,6 +96,38 @@ function App() {
             element={
               <ProtectedRoute>
                 <ExpenseDetailsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settlements"
+            element={
+              <ProtectedRoute>
+                <SettlementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/import"
+            element={
+              <ProtectedRoute>
+                <ImportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/import/review"
+            element={
+              <ProtectedRoute>
+                <ImportReviewPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/import/report"
+            element={
+              <ProtectedRoute>
+                <ImportReportPage />
               </ProtectedRoute>
             }
           />

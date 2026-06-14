@@ -14,6 +14,7 @@ function ExpensesPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [currencyFilter, setCurrencyFilter] = useState('ALL');
+  const [splitFilter, setSplitFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('date-desc');
   const [deleteLoading, setDeleteLoading] = useState(null);
 
@@ -64,6 +65,10 @@ function ExpensesPage() {
       result = result.filter((e) => e.currency === currencyFilter);
     }
 
+    if (splitFilter !== 'ALL') {
+      result = result.filter((e) => e.splitType === splitFilter);
+    }
+
     result.sort((a, b) => {
       if (sortBy === 'date-desc') return new Date(b.expenseDate) - new Date(a.expenseDate);
       if (sortBy === 'date-asc') return new Date(a.expenseDate) - new Date(b.expenseDate);
@@ -73,7 +78,7 @@ function ExpensesPage() {
     });
 
     return result;
-  }, [expenses, search, currencyFilter, sortBy]);
+  }, [expenses, search, currencyFilter, splitFilter, sortBy]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -110,6 +115,17 @@ function ExpensesPage() {
             <option value="ALL">All currencies</option>
             <option value="INR">INR</option>
             <option value="USD">USD</option>
+          </select>
+          <select
+            value={splitFilter}
+            onChange={(e) => setSplitFilter(e.target.value)}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+          >
+            <option value="ALL">All split types</option>
+            <option value="EQUAL">Equal</option>
+            <option value="EXACT">Exact</option>
+            <option value="PERCENTAGE">Percentage</option>
+            <option value="SHARE">Share</option>
           </select>
           <select
             value={sortBy}

@@ -1,13 +1,14 @@
 /**
- * Member list — renders a grid of MemberCard components.
+ * Member list — renders all members (active and inactive) as MemberCards.
  */
 import MemberCard from './MemberCard';
 
 function MemberList({
   members,
-  onRemove,
-  onUpdateJoinDate,
-  onUpdateLeaveDate,
+  onMarkLeft,
+  onEditJoinDate,
+  onEditLeaveDate,
+  onReactivate,
   actionLoading,
   loading,
 }) {
@@ -34,9 +35,10 @@ function MemberList({
         <MemberCard
           key={member.id}
           member={member}
-          onRemove={onRemove}
-          onUpdateJoinDate={onUpdateJoinDate}
-          onUpdateLeaveDate={onUpdateLeaveDate}
+          onMarkLeft={onMarkLeft}
+          onEditJoinDate={onEditJoinDate}
+          onEditLeaveDate={onEditLeaveDate}
+          onReactivate={onReactivate}
           disabled={actionLoading === member.id}
         />
       ))}
