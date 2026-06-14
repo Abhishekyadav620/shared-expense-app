@@ -1,7 +1,7 @@
 /**
  * Anomaly detection HTTP handler.
  */
-const anomalyDetectionService = require('../services/anomalyDetectionService');
+const anomalyDetectionService = require('../services/anomalyService');
 
 /**
  * POST /api/import/anomalies

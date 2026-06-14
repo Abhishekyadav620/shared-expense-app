@@ -34,8 +34,14 @@ function ImportPage() {
         <header className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Import Expenses</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Upload a CSV file to parse expense rows before validation and import
+            Step 1: Upload CSV → Step 2: Detect anomalies → Step 3: Review → Step 4: Import report
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">1. Upload</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">2. Detect</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">3. Review</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">4. Report</span>
+          </div>
         </header>
 
         <CSVUpload onUpload={handleUpload} />

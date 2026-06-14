@@ -26,9 +26,16 @@ const ISSUE_TYPE = {
   UNKNOWN_SPLIT_TYPE: 'UNKNOWN_SPLIT_TYPE',
   INVALID_EXACT_SPLIT: 'INVALID_EXACT_SPLIT',
   MISSING_RECEIVER: 'MISSING_RECEIVER',
+  INCONSISTENT_NAME: 'INCONSISTENT_NAME',
+  MISSING_CURRENCY: 'MISSING_CURRENCY',
+  AMBIGUOUS_DATE: 'AMBIGUOUS_DATE',
+  DECIMAL_PRECISION: 'DECIMAL_PRECISION',
+  EQUAL_WITH_SHARES: 'EQUAL_WITH_SHARES',
+  MEMBER_LEFT_BEFORE_EXPENSE: 'MEMBER_LEFT_BEFORE_EXPENSE',
+  TEMPORARY_PARTICIPANT: 'TEMPORARY_PARTICIPANT',
 };
 
-const SETTLEMENT_KEYWORDS = /settlement|settle up|repayment|paid to|transfer|reimbursement/i;
+const SETTLEMENT_KEYWORDS = /settlement|settle up|repayment|paid to|paid back|deposit share|transfer|reimbursement/i;
 
 function validationError(message) {
   const error = new Error(message);
@@ -64,20 +71,50 @@ function normalizeRow(row) {
 
   return {
     rowNumber: row.rowNumber,
+    raw: row,
     title: getField(row, 'title', 'description', 'name'),
     amount: amountRaw !== null ? parseFloat(amountRaw) : NaN,
-    currency: (getField(row, 'currency') || 'INR').toUpperCase(),
+    currency: (getField(row, 'currency') || '').toUpperCase(),
     expenseDate: getField(row, 'expensedate', 'date', 'expense_date'),
+    dateRaw: getField(row, 'expensedate', 'date', 'expense_date'),
     paidBy: getField(row, 'paidby', 'paid_by', 'payer'),
+    receiver: getField(row, 'receiver', 'paidto', 'paid_to', 'receivername'),
     splitType: splitTypeRaw.toUpperCase(),
     participants: getField(row, 'participants', 'members', 'splitbetween'),
     shares: getField(row, 'shares', 'percentages', 'splitshares', 'split_values'),
     recordType: getField(row, 'type', 'recordtype', 'record_type'),
+    name: getField(row, 'name', 'username', 'user_name', 'payername', 'participantname'),
+    normalizedName: null,
   };
 }
 
 function buildAnomaly(rowNumber, issueType, severity, description, suggestedAction) {
   return { rowNumber, issueType, severity, description, suggestedAction };
+}
+
+function normalizeName(value) {
+  if (!value) return null;
+  const cleaned = String(value).trim().replace(/\s+/g, ' ');
+  if (!cleaned) return null;
+  return cleaned
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function isAmbiguousDate(value) {
+  if (!value) return false;
+  const match = String(value).trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) return false;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  return first <= 12 && second <= 12;
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function exactFingerprint(row) {
@@ -139,6 +176,135 @@ function detectCsvDuplicates(normalizedRows, anomalies) {
   }
 }
 
+function detectInconsistentNames(normalizedRows, anomalies) {
+  const variants = new Map();
+
+  for (const row of normalizedRows) {
+    const sources = [row.paidBy, row.receiver, row.name];
+    if (row.participants) {
+      sources.push(...row.participants.split(',').map((part) => part.trim()).filter(Boolean));
+    }
+
+    for (const source of sources.filter(Boolean)) {
+      const normalized = normalizeName(source);
+      if (!normalized) continue;
+
+      const key = normalized.toLowerCase();
+      if (!variants.has(key)) variants.set(key, new Set());
+      variants.get(key).add(source);
+    }
+  }
+
+  for (const [key, names] of variants.entries()) {
+    if (names.size > 1) {
+      const canonical = normalizeName(key);
+      for (const row of normalizedRows) {
+        const rowText = [row.paidBy, row.receiver, row.name, row.participants || ''].join(' ').toLowerCase();
+        if (rowText.includes(key)) {
+          anomalies.push(
+            buildAnomaly(
+              row.rowNumber,
+              ISSUE_TYPE.INCONSISTENT_NAME,
+              SEVERITY.LOW,
+              `Name variants detected for "${[...names].join(' / ')}". Normalize to "${canonical}".`,
+              `Normalize to ${canonical}`
+            )
+          );
+          break;
+        }
+      }
+    }
+  }
+}
+
+function detectMissingCurrency(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (!row.currency) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.MISSING_CURRENCY,
+          SEVERITY.LOW,
+          `Row ${row.rowNumber} has no currency. INR will be assumed.`,
+          'Assume INR'
+        )
+      );
+    }
+  }
+}
+
+function detectAmbiguousDates(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (isAmbiguousDate(row.dateRaw)) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.AMBIGUOUS_DATE,
+          SEVERITY.HIGH,
+          `Row ${row.rowNumber} has an ambiguous date format (${row.dateRaw}).`,
+          'Require user confirmation'
+        )
+      );
+    }
+  }
+}
+
+function detectDecimalPrecision(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (typeof row.amount !== 'number' || Number.isNaN(row.amount)) continue;
+    const rounded = roundTo2(row.amount);
+    if (Math.abs(rounded - row.amount) > 0.0001) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.DECIMAL_PRECISION,
+          SEVERITY.LOW,
+          `Row ${row.rowNumber} rounds ${row.amount} to ${rounded.toFixed(2)}.`,
+          `Round to ${rounded.toFixed(2)}`
+        )
+      );
+    }
+  }
+}
+
+function roundTo2(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function detectEqualWithShares(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (row.splitType === 'EQUAL' && row.shares) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.EQUAL_WITH_SHARES,
+          SEVERITY.LOW,
+          `Row ${row.rowNumber} is EQUAL split but also provides share details. Shares will be ignored.`,
+          'Use equal split and ignore shares'
+        )
+      );
+    }
+  }
+}
+
+function detectTemporaryParticipants(normalizedRows, anomalies) {
+  for (const row of normalizedRows) {
+    if (!row.participants) continue;
+    const participantText = row.participants.toLowerCase();
+    if (participantText.includes('friend') || participantText.includes('guest') || participantText.includes('temporary')) {
+      anomalies.push(
+        buildAnomaly(
+          row.rowNumber,
+          ISSUE_TYPE.TEMPORARY_PARTICIPANT,
+          SEVERITY.LOW,
+          `Row ${row.rowNumber} appears to include a temporary participant.`,
+          'Create guest participant'
+        )
+      );
+    }
+  }
+}
+
 /** 3 — negative amounts. */
 function detectNegativeAmounts(normalizedRows, anomalies) {
   for (const row of normalizedRows) {
@@ -147,9 +313,9 @@ function detectNegativeAmounts(normalizedRows, anomalies) {
         buildAnomaly(
           row.rowNumber,
           ISSUE_TYPE.NEGATIVE_AMOUNT,
-          SEVERITY.HIGH,
-          `Row ${row.rowNumber} has a negative amount (${row.amount}). Expenses must be positive values.`,
-          'Correct the amount in the CSV or reject this row.'
+          SEVERITY.MEDIUM,
+          `Row ${row.rowNumber} has a negative amount (${row.amount}). Treat as refund if approved.`,
+          'Treat as refund or skip this row.'
         )
       );
     }
@@ -442,12 +608,16 @@ function detectInactiveUsersForRow(row, members, anomalies) {
   if (!expenseDate) return;
 
   const peopleToCheck = [row.paidBy];
-  if (row.participants) {
-    peopleToCheck.push(...row.participants.split(',').map((p) => p.trim()));
-  }
+  const participants = row.participants
+    ? row.participants.split(',').map((p) => p.trim()).filter(Boolean)
+    : [];
+  peopleToCheck.push(...participants);
 
   for (const person of peopleToCheck.filter(Boolean)) {
     const membership = resolveMemberIdentifier(person, members);
+    const isParticipant = participants.some(
+      (p) => p.toLowerCase() === person.toLowerCase()
+    );
 
     if (!membership) {
       anomalies.push(
@@ -465,16 +635,41 @@ function detectInactiveUsersForRow(row, members, anomalies) {
     const joinedAt = new Date(membership.joinedAt);
     const leftAt = membership.leftAt ? new Date(membership.leftAt) : null;
 
-    if (expenseDate < joinedAt || (leftAt && expenseDate > leftAt)) {
+    if (expenseDate < joinedAt) {
       anomalies.push(
         buildAnomaly(
           row.rowNumber,
           ISSUE_TYPE.INACTIVE_USER,
           SEVERITY.HIGH,
-          `Row ${row.rowNumber}: "${person}" was not active in the group on ${row.expenseDate}.`,
-          'Adjust the expense date or update the member join/leave dates.'
+          `Row ${row.rowNumber}: "${person}" had not joined the group on ${row.expenseDate}.`,
+          'Adjust the expense date or update join dates.'
         )
       );
+      continue;
+    }
+
+    if (leftAt && expenseDate > leftAt) {
+      if (isParticipant && person.toLowerCase() !== (row.paidBy || '').toLowerCase()) {
+        anomalies.push(
+          buildAnomaly(
+            row.rowNumber,
+            ISSUE_TYPE.MEMBER_LEFT_BEFORE_EXPENSE,
+            SEVERITY.MEDIUM,
+            `Row ${row.rowNumber}: "${person}" left before ${row.expenseDate}. They will be removed from the split.`,
+            `Remove ${person} from split`
+          )
+        );
+      } else {
+        anomalies.push(
+          buildAnomaly(
+            row.rowNumber,
+            ISSUE_TYPE.INACTIVE_USER,
+            SEVERITY.HIGH,
+            `Row ${row.rowNumber}: "${person}" was not active in the group on ${row.expenseDate}.`,
+            'Adjust the expense date or update the member leave dates.'
+          )
+        );
+      }
     }
   }
 }
@@ -551,11 +746,14 @@ async function detectAnomalies(rows, groupId, userId) {
   const normalizedRows = rows.map(normalizeRow);
   const anomalies = [];
 
+  detectInconsistentNames(normalizedRows, anomalies);
+  detectMissingCurrency(normalizedRows, anomalies);
   detectCsvDuplicates(normalizedRows, anomalies);
   detectMissingAmount(normalizedRows, anomalies);
   detectZeroAmount(normalizedRows, anomalies);
   detectNegativeAmounts(normalizedRows, anomalies);
   detectMissingDate(normalizedRows, anomalies);
+  detectAmbiguousDates(normalizedRows, anomalies);
   detectMissingPayer(normalizedRows, anomalies);
   detectMissingReceiver(normalizedRows, anomalies);
   detectUnknownSplitType(normalizedRows, anomalies);
@@ -564,6 +762,9 @@ async function detectAnomalies(rows, groupId, userId) {
   detectInvalidExactSplits(normalizedRows, anomalies);
   detectMissingParticipants(normalizedRows, anomalies);
   detectUsdCurrency(normalizedRows, anomalies);
+  detectDecimalPrecision(normalizedRows, anomalies);
+  detectEqualWithShares(normalizedRows, anomalies);
+  detectTemporaryParticipants(normalizedRows, anomalies);
 
   if (groupId) {
     await verifyGroupAccess(groupId, userId);

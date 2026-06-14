@@ -8,6 +8,9 @@ function generateReport({
   anomalyCount,
   actionsTaken,
   importedDetails = [],
+  reportRows = [],
+  summary = {},
+  policyLog = [],
   usdToInrRate,
 }) {
   return {
@@ -17,6 +20,18 @@ function generateReport({
     anomalyCount,
     actionsTaken: actionsTaken || [],
     importedDetails,
+    reportRows,
+    policyLog,
+    summary: {
+      totalRows,
+      importedRows: successfulImports,
+      warnings: summary.warnings || 0,
+      duplicates: summary.duplicates || 0,
+      refunds: summary.refunds || 0,
+      settlements: summary.settlements || 0,
+      currencyConversions: summary.currencyConversions || 0,
+      rowsRequiringReview: summary.rowsRequiringReview || 0,
+    },
     usdToInrRate: usdToInrRate || null,
     generatedAt: new Date().toISOString(),
   };

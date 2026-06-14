@@ -38,18 +38,33 @@ const ISSUE_LABELS = {
   UNKNOWN_SPLIT_TYPE: 'Unknown Split Type',
   INVALID_EXACT_SPLIT: 'Invalid Exact Split',
   MISSING_RECEIVER: 'Missing Receiver',
+  INCONSISTENT_NAME: 'Inconsistent Name',
+  MISSING_CURRENCY: 'Missing Currency',
+  AMBIGUOUS_DATE: 'Ambiguous Date',
+  DECIMAL_PRECISION: 'Decimal Precision',
+  EQUAL_WITH_SHARES: 'Equal Split with Shares',
+  MEMBER_LEFT_BEFORE_EXPENSE: 'Member Left Before Expense',
+  TEMPORARY_PARTICIPANT: 'Temporary Participant',
+  NAME_NORMALIZED: 'Name Normalized',
+  DUPLICATE_EXPENSE: 'Duplicate Expense',
 };
 
 function AnomalyCard({
   anomaly,
   decision,
-  onApprove,
-  onReject,
-  onSkip,
+  onAction,
+  actions,
   disabled = false,
 }) {
   const styles = SEVERITY_STYLES[anomaly.severity] || SEVERITY_STYLES.MEDIUM;
   const issueLabel = ISSUE_LABELS[anomaly.issueType] || anomaly.issueType;
+
+  const defaultActions = [
+    { label: 'Approve', value: 'approved', className: 'border-green-200 text-green-700 hover:bg-green-50' },
+    { label: 'Skip', value: 'skip_row', className: 'border-amber-200 text-amber-700 hover:bg-amber-50' },
+  ];
+
+  const visibleActions = actions || defaultActions;
 
   return (
     <div className={`rounded-xl border ${styles.border} bg-white p-5 shadow-md`}>
@@ -74,42 +89,22 @@ function AnomalyCard({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={disabled}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition disabled:opacity-50 ${
-              decision === 'approved'
-                ? 'bg-green-600 text-white'
-                : 'border border-green-200 text-green-700 hover:bg-green-50'
-            }`}
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={disabled}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition disabled:opacity-50 ${
-              decision === 'rejected'
-                ? 'bg-red-600 text-white'
-                : 'border border-red-200 text-red-700 hover:bg-red-50'
-            }`}
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={disabled}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition disabled:opacity-50 ${
-              decision === 'skipped'
-                ? 'bg-amber-500 text-white'
-                : 'border border-amber-200 text-amber-700 hover:bg-amber-50'
-            }`}
-          >
-            Skip
-          </button>
+          {visibleActions.map((action) => {
+            const isActive = decision === action.value;
+            return (
+              <button
+                type="button"
+                key={action.value}
+                onClick={() => onAction?.(action.value)}
+                disabled={disabled}
+                className={`rounded-lg px-3 py-2 text-xs font-medium transition disabled:opacity-50 ${
+                  isActive ? 'bg-slate-900 text-white' : `border ${action.className}`
+                }`}
+              >
+                {action.label}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

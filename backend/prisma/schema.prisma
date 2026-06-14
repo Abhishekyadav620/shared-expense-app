@@ -41,6 +41,7 @@ model User {
   expenseParticipations ExpenseParticipant[]
   settlementsPaid       Settlement[]         @relation("SettlementPayer")
   settlementsReceived   Settlement[]         @relation("SettlementReceiver")
+  importReports         ImportReport[]
 }
 
 //////////////////////////////////////////////////
@@ -58,6 +59,7 @@ model Group {
   members     GroupMember[]
   expenses    Expense[]
   settlements Settlement[]
+  importReports ImportReport[]
 }
 
 //////////////////////////////////////////////////
@@ -131,5 +133,49 @@ model Settlement {
   group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   payer    User  @relation("SettlementPayer", fields: [payerId], references: [id])
   receiver User  @relation("SettlementReceiver", fields: [receiverId], references: [id])
+}
+
+//////////////////////////////////////////////////
+// IMPORT REPORTING
+//////////////////////////////////////////////////
+
+model ImportReport {
+  id                Int      @id @default(autoincrement())
+  groupId           Int
+  userId            Int
+  totalRows         Int
+  successfulImports Int
+  skippedRows       Int
+  anomalyCount      Int
+  usdToInrRate      Decimal? @db.Decimal(10, 4)
+  reportJson        Json
+  createdAt         DateTime @default(now())
+
+  group     Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  anomalies ImportAnomaly[]
+  reviews   ImportReview[]
+}
+
+model ImportAnomaly {
+  id              Int    @id @default(autoincrement())
+  importReportId  Int
+  rowNumber       Int
+  issueType       String
+  severity        String
+  description     String @db.Text
+  suggestedAction String @db.Text
+
+  importReport ImportReport @relation(fields: [importReportId], references: [id], onDelete: Cascade)
+}
+
+model ImportReview {
+  id             Int    @id @default(autoincrement())
+  importReportId Int
+  rowNumber      Int
+  issueType      String
+  actionTaken    String
+
+  importReport ImportReport @relation(fields: [importReportId], references: [id], onDelete: Cascade)
 }
 

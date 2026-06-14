@@ -6,7 +6,7 @@ const { Prisma } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const prisma = require('./prismaClient');
 
-const SETTLEMENT_KEYWORDS = /settlement|settle up|repayment|paid to|transfer|reimbursement/i;
+const SETTLEMENT_KEYWORDS = /settlement|settle up|repayment|paid to|paid back|deposit share|transfer|reimbursement/i;
 
 function validationError(message) {
   const error = new Error(message);
@@ -58,6 +58,14 @@ function normalizeRow(row) {
     userName: getField(row, 'username', 'user_name', 'name'),
     userEmail: getField(row, 'useremail', 'user_email', 'email'),
     password: getField(row, 'password'),
+    originalAmount: row.originalAmount ?? null,
+    originalCurrency: row.originalCurrency ?? null,
+    exchangeRate: row.exchangeRate ?? null,
+    convertedAmount: row.convertedAmount ?? null,
+    isRefund: row.isRefund ?? false,
+    shouldIgnore: row.shouldIgnore ?? false,
+    isGuestParticipant: row.isGuestParticipant ?? false,
+    forceSettlement: row.forceSettlement ?? false,
   };
 }
 
@@ -150,20 +158,31 @@ async function verifyGroupAccess(tx, groupId, userId) {
 }
 
 /** Resolve a user by email or name — must exist or be creatable via user row. */
-async function resolveUser(tx, identifier, cache) {
+async function resolveUser(tx, identifier, cache, options = {}) {
   if (!identifier) throw validationError('User identifier is required');
 
   const key = identifier.toLowerCase();
   if (cache.has(key)) return cache.get(key);
 
-  const user = await tx.user.findFirst({
+  let user = await tx.user.findFirst({
     where: {
       OR: [{ email: key }, { name: identifier }],
     },
   });
 
   if (!user) {
-    throw validationError(`User "${identifier}" not found. Add the user before importing.`);
+    if (options.allowGuest) {
+      const guestEmail = `${key.replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '')}.${Date.now()}@guest.local`;
+      user = await tx.user.create({
+        data: {
+          name: identifier,
+          email: guestEmail,
+          password: await bcrypt.hash(`Guest@${Date.now()}!`, 10),
+        },
+      });
+    } else {
+      throw validationError(`User "${identifier}" not found. Add the user before importing.`);
+    }
   }
 
   cache.set(key, user);
@@ -187,6 +206,7 @@ async function ensureGroupMember(tx, groupId, userId) {
 
 function isSettlementRow(row) {
   return (
+    row.forceSettlement ||
     row.recordType === 'settlement' ||
     (row.title && SETTLEMENT_KEYWORDS.test(row.title))
   );
@@ -240,7 +260,7 @@ async function importSettlementRow(tx, row, groupId, userCache) {
   const payer = await resolveUser(tx, row.paidBy, userCache);
   const receiver = await resolveUser(tx, row.receiver, userCache);
 
-  if (Number.isNaN(row.amount) || row.amount <= 0) {
+  if (Number.isNaN(row.amount) || (row.amount <= 0 && !row.isRefund)) {
     throw validationError(`Row ${row.rowNumber}: invalid settlement amount`);
   }
 
@@ -262,7 +282,10 @@ async function importSettlementRow(tx, row, groupId, userCache) {
 
 async function importExpenseRow(tx, row, groupId, userCache) {
   if (!row.title) throw validationError(`Row ${row.rowNumber}: expense title is required`);
-  if (Number.isNaN(row.amount) || row.amount <= 0) {
+  if (row.shouldIgnore) {
+    return { type: 'ignored', id: null, rowNumber: row.rowNumber };
+  }
+  if (Number.isNaN(row.amount) || (row.amount <= 0 && !row.isRefund)) {
     throw validationError(`Row ${row.rowNumber}: amount must be positive`);
   }
   if (!['INR', 'USD'].includes(row.currency)) {
@@ -276,7 +299,13 @@ async function importExpenseRow(tx, row, groupId, userCache) {
   const shareValues = row.shares ? row.shares.split(',').map((v) => v.trim()) : [];
 
   const participantUsers = participantNames.length > 0
-    ? await Promise.all(participantNames.map((name) => resolveUser(tx, name, userCache)))
+    ? await Promise.all(
+        participantNames.map((name) =>
+          resolveUser(tx, name, userCache, {
+            allowGuest: row.isGuestParticipant || /friend|guest|temporary|kabir/i.test(name),
+          })
+        )
+      )
     : [payer];
 
   for (const participant of participantUsers) {
@@ -288,13 +317,14 @@ async function importExpenseRow(tx, row, groupId, userCache) {
     shareAmount: shareValues[index] || (row.splitType === 'EQUAL' ? 0 : shareValues[0] || 0),
   }));
 
-  const shares = calculateShares(row.amount, row.splitType, splitParticipants);
+  const shares = calculateShares(Math.abs(row.amount), row.splitType, splitParticipants);
+  const finalAmount = row.isRefund ? -Math.abs(row.amount) : row.amount;
 
   const expense = await tx.expense.create({
     data: {
       groupId,
       title: row.title,
-      amount: new Prisma.Decimal(row.amount),
+      amount: new Prisma.Decimal(finalAmount),
       currency: row.currency,
       paidBy: payer.id,
       expenseDate: parseDate(row.expenseDate, 'expense date'),
@@ -337,6 +367,12 @@ async function importApprovedRows(approvedRows, groupId, userId, usdToInrRate) {
       const row = normalizeRow(rawRow);
       let result;
 
+      if (row.amount === 0 || row.shouldIgnore) {
+        result = { type: 'ignored', id: null, rowNumber: row.rowNumber };
+        imported.push(result);
+        continue;
+      }
+
       if (row.recordType === 'group') {
         result = await importGroupRow(tx, row, userId, groupCache);
       } else if (row.recordType === 'user') {
@@ -354,7 +390,7 @@ async function importApprovedRows(approvedRows, groupId, userId, usdToInrRate) {
   });
 
   return {
-    successfulImports: results.length,
+    successfulImports: results.filter((result) => result.type !== 'ignored').length,
     imported: results,
   };
 }
