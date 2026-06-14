@@ -1,5 +1,8 @@
 /**
- * Settlement business logic — record and list payments between group members.
+ * Settlement business logic — record, list, and delete payments between group members.
+ *
+ * Settlements are stored separately from expenses because they represent
+ * actual cash transfers that reduce net balances without changing expense history.
  */
 const { Prisma } = require('@prisma/client');
 const prisma = require('./prismaClient');
@@ -23,6 +26,18 @@ const settlementInclude = {
   payer: { select: userSelect },
   receiver: { select: userSelect },
 };
+
+/** Shape a Prisma settlement row into the API response format. */
+function formatSettlement(settlement) {
+  return {
+    id: settlement.id,
+    groupId: settlement.groupId,
+    payer: settlement.payer,
+    receiver: settlement.receiver,
+    amount: parseFloat(settlement.amount),
+    paymentDate: settlement.paymentDate,
+  };
+}
 
 async function verifyGroupAccess(groupId, userId) {
   const id = Number(groupId);
@@ -67,6 +82,10 @@ function parseDate(value, fieldName) {
 
 /**
  * Record a payment from payer to receiver within a group.
+ *
+ * @param {number} groupId
+ * @param {number} userId  — requesting user (must have group access)
+ * @param {{ payerId, receiverId, amount, paymentDate }} data
  */
 async function createSettlement(groupId, userId, { payerId, receiverId, amount, paymentDate }) {
   await verifyGroupAccess(groupId, userId);
@@ -99,40 +118,42 @@ async function createSettlement(groupId, userId, { payerId, receiverId, amount, 
     include: settlementInclude,
   });
 
-  return settlement;
+  return formatSettlement(settlement);
 }
 
 /**
- * List all settlements recorded in a group.
+ * List all settlements recorded in a group, newest first.
  */
-async function getSettlementsByGroup(groupId, userId) {
+async function getGroupSettlements(groupId, userId) {
   await verifyGroupAccess(groupId, userId);
 
-  return prisma.settlement.findMany({
+  const settlements = await prisma.settlement.findMany({
     where: { groupId: Number(groupId) },
     include: settlementInclude,
     orderBy: { paymentDate: 'desc' },
   });
+
+  return settlements.map(formatSettlement);
 }
 
 /**
- * Delete a settlement record.
+ * Delete a settlement by ID — verifies the user can access the settlement's group.
  */
-async function deleteSettlement(groupId, settlementId, userId) {
-  await verifyGroupAccess(groupId, userId);
-
+async function deleteSettlement(settlementId, userId) {
   const id = Number(settlementId);
   if (Number.isNaN(id)) {
     throw validationError('Invalid settlement ID');
   }
 
-  const settlement = await prisma.settlement.findFirst({
-    where: { id, groupId: Number(groupId) },
+  const settlement = await prisma.settlement.findUnique({
+    where: { id },
   });
 
   if (!settlement) {
     throw notFoundError('Settlement not found');
   }
+
+  await verifyGroupAccess(settlement.groupId, userId);
 
   await prisma.settlement.delete({ where: { id } });
 
@@ -141,6 +162,6 @@ async function deleteSettlement(groupId, settlementId, userId) {
 
 module.exports = {
   createSettlement,
-  getSettlementsByGroup,
+  getGroupSettlements,
   deleteSettlement,
 };

@@ -9,6 +9,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const { router: expenseRoutes } = require('./routes/expenseRoutes');
+const { router: settlementRoutes } = require('./routes/settlementRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -33,6 +34,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/expenses', expenseRoutes);
+app.use('/api/settlements', settlementRoutes);
 
 // ── Error handler MUST be last — catches errors from all routes above ────────
 app.use(errorHandler);

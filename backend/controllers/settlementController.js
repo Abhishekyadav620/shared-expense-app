@@ -4,18 +4,30 @@
 const settlementService = require('../services/settlementService');
 
 /**
- * POST /api/groups/:groupId/settlements
+ * POST /api/settlements
+ * Body: { groupId, payerId, receiverId, amount, paymentDate }
  */
 async function createSettlement(req, res, next) {
   try {
-    const { groupId } = req.params;
     const userId = req.user.id;
+    const { groupId, payerId, receiverId, amount, paymentDate } = req.body;
 
-    const settlement = await settlementService.createSettlement(groupId, userId, req.body);
+    if (!groupId) {
+      return res.status(400).json({
+        success: false,
+        message: 'groupId is required',
+      });
+    }
+
+    const settlement = await settlementService.createSettlement(groupId, userId, {
+      payerId,
+      receiverId,
+      amount,
+      paymentDate,
+    });
 
     res.status(201).json({
       success: true,
-      message: 'Settlement recorded successfully',
       data: settlement,
     });
   } catch (error) {
@@ -26,16 +38,15 @@ async function createSettlement(req, res, next) {
 /**
  * GET /api/groups/:groupId/settlements
  */
-async function getSettlements(req, res, next) {
+async function getGroupSettlements(req, res, next) {
   try {
     const { groupId } = req.params;
     const userId = req.user.id;
 
-    const settlements = await settlementService.getSettlementsByGroup(groupId, userId);
+    const settlements = await settlementService.getGroupSettlements(groupId, userId);
 
     res.status(200).json({
       success: true,
-      message: 'Settlements fetched successfully',
       data: settlements,
     });
   } catch (error) {
@@ -44,18 +55,18 @@ async function getSettlements(req, res, next) {
 }
 
 /**
- * DELETE /api/groups/:groupId/settlements/:id
+ * DELETE /api/settlements/:id
  */
 async function deleteSettlement(req, res, next) {
   try {
-    const { groupId, id } = req.params;
+    const { id } = req.params;
     const userId = req.user.id;
 
-    await settlementService.deleteSettlement(groupId, id, userId);
+    await settlementService.deleteSettlement(id, userId);
 
     res.status(200).json({
       success: true,
-      message: 'Settlement deleted successfully',
+      data: [],
     });
   } catch (error) {
     next(error);
@@ -64,6 +75,6 @@ async function deleteSettlement(req, res, next) {
 
 module.exports = {
   createSettlement,
-  getSettlements,
+  getGroupSettlements,
   deleteSettlement,
 };
