@@ -13,6 +13,7 @@ const groupController = require('../controllers/groupController');
 const memberRoutes = require('./memberRoutes');
 const { groupExpenseRouter } = require('./expenseRoutes');
 const balanceRoutes = require('./balanceRoutes');
+const debtRoutes = require('./debtRoutes');
 const settlementRoutes = require('./settlementRoutes');
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.get('/', groupController.getAllGroups);
 router.use('/:groupId/members', memberRoutes);
 router.use('/:groupId/expenses', groupExpenseRouter);
 router.use('/:groupId/balances', balanceRoutes);
+router.use('/:groupId/simplified-balances', debtRoutes);
 router.use('/:groupId/settlements', settlementRoutes);
 
 router.get('/:id', groupController.getGroupById);
